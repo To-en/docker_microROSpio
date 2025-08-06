@@ -1,0 +1,128 @@
+# syntax=docker/dockerfile:1
+
+################################################################################
+# Use official ROS2 Jazzy Desktop image as base
+FROM osrf/ros:jazzy-desktop as base
+# Change the shell to bash in order to run bash command
+SHELL ["/bin/bash", "-c"]
+
+# # Copy the specific config , .yaml and such to site
+# COPY config/ /site_config/
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Install additional system dependencies not in base ROS image
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    python3-pip \
+    build-essential \
+    cmake \
+    wget \
+    software-properties-common \
+    sudo \
+    python3-venv \
+    micro \
+    && rm -rf /var/lib/apt/lists/*
+
+################################################################################
+# PlatformIO and microROS development stage
+FROM base as development
+
+# Add the ability to do sudo
+
+# Install PlatformIO using the official installer
+RUN curl -fsSL -o get-platformio.py https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py && \
+    python3 get-platformio.py && \
+    rm get-platformio.py
+
+# Enable PIO core to be executable in shell
+RUN export PATH=$PATH:$HOME/.local/bin && \
+    mkdir -p ~/.local/bin && \
+    ln -sf ~/.platformio/penv/bin/platformio ~/.local/bin/platformio && \
+    ln -sf ~/.platformio/penv/bin/pio ~/.local/bin/pio && \
+    ln -sf ~/.platformio/penv/bin/piodebuggdb ~/.local/bin/piodebuggdb
+
+# Add PlatformIO to PATH permanently
+RUN echo 'export PATH=$PATH:~/.platformio/penv/bin:~/.local/bin' >> ~/.bashrc
+
+# Create microROS workspace and clone microROS (I think this should have been placed else where bro)
+
+# RUN . /opt/ros/$ROS_DISTRO/setup.bash
+RUN mkdir /opt/microros_ws
+
+# cd /opt/microros_ws && \
+WORKDIR /opt/microros_ws
+RUN git clone -b $ROS_DISTRO https://github.com/micro-ROS/micro_ros_setup.git src/micro_ros_setup
+
+# Update dependencies using rosdep
+RUN apt-get update && rosdep update && rosdep install --from-paths src --ignore-src -y
+
+
+# Build microROS setup tools, and create agent
+RUN . /opt/ros/$ROS_DISTRO/setup.bash && \
+    colcon build && \
+    . install/local_setup.bash && \
+    ros2 run micro_ros_setup create_agent_ws.sh && \
+    ros2 run micro_ros_setup build_agent.sh
+
+# Set up environment variables for microROS
+ENV MICROROS_WS=/opt/microros_ws
+
+# RUN echo "source /opt/ros/$ROS_DISTRO/setup.bash" >> ~/.bashrc
+# RUN echo "source /opt/microros_ws/install/local_setup.bash" >> ~/.bashrc
+
+################################################################################
+# User setup for development
+FROM development as user-setup
+
+# Create development user
+ARG USERNAME=developer
+ARG USER_UID=2000
+ARG USER_GID=$USER_UID
+
+# This needs some revise
+# RUN groupadd --gid $USER_GID $USERNAME && \
+#     useradd --uid $USER_UID --gid $USER_GID -m $USERNAME && \
+#     usermod -aG dialout $USERNAME
+
+RUN groupadd --gid $USER_GID $USERNAME \
+  && useradd -s /bin/bash --uid $USER_UID --gid $USER_GID -m $USERNAME \
+  && mkdir /home/$USERNAME/.config && chown $USER_UID:$USER_GID /home/$USERNAME/.config
+
+# Give sudo permissions to user-setup (needed for PlatformIO device access)
+RUN echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME && \
+    chmod 0440 /etc/sudoers.d/$USERNAME
+
+# Copy root's environment setup to user
+RUN cp ~/.bashrc /home/$USERNAME/.bashrc && \
+    chown $USERNAME:$USERNAME /home/$USERNAME/.bashrc
+
+################################################################################
+# Final development environment
+FROM user-setup as final
+
+WORKDIR /home/$USERNAME
+
+# Switch to development user
+USER $USERNAME
+
+# Install PlatformIO for the user (in case root installation doesn't work for user)
+RUN curl -fsSL -o get-platformio.py https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py && \
+    python3 get-platformio.py && \
+    rm get-platformio.py
+
+# Ensure PlatformIO is in PATH for this user
+RUN echo 'export PATH=$PATH:~/.platformio/penv/bin:~/.local/bin' >> ~/.bashrc
+
+# Set working directory to where your PlatformIO project will be mounted
+WORKDIR /workspace
+
+COPY entrypoint.sh /entrypoint.sh
+# Set the entrypoint to source ROS2 and microROS environments
+ENTRYPOINT ["/bin/sh, /entrypoint.sh"]
+
+# Default command opens a bash shell
+CMD ["bash"]
