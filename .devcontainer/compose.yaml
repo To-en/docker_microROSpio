@@ -1,5 +1,5 @@
-include:
-  - ./compose_include/config1.yaml
+# include:
+#   - ./compose_include/config1.yaml
 
 services:
   microros-dev:
@@ -10,18 +10,17 @@ services:
         USERNAME: developer
         USER_UID: 2000
         USER_GID: 2000
-    container_name: microros-platformio-jazzy
+    container_name: bp-ros-cont
     volumes:
       # Mount your PlatformIO project directory (This should bind mount to)
-      # - .:/workspace
-      - workspace:/workspace
-      # Persist PlatformIO packages and toolchains
+      - ./projects:/home/developer/pio_projects
+      # Stores PIO packages and toolchains in volume
       - platformio-packages:/home/developer/.platformio
-      # Mount USB devices for flashing
+      # Mount USB devices for flashing (This will mount from Linux system)
       - /dev:/dev
     privileged: true  # Needed for USB device access
-    stdin_open: true
-    tty: true
+    stdin_open: true  # -i equivalent std input is open for terminal , what about std_output
+    tty: true         # -t equivalent
     environment:
       - DISPLAY=${DISPLAY}  # For GUI tools if needed
       - ROS_DOMAIN_ID=42   # Set ROS domain ID

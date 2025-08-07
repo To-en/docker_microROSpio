@@ -27,25 +27,23 @@ RUN apt-get update && apt-get install -y \
     sudo \
     python3-venv \
     micro
-    # && rm -rf /var/lib/apt/lists/*
 
 ################################################################################
-# new user PlatformIO and microROS setup
+# New user microROS setup & PIO core installation
 ################################################################################
-
 FROM base as development
 
 # Create non-root user
-ARG USERNAME=developer
-ARG USER_UID=2000
-ARG USER_GID=$USER_UID
+ARG USERNAME
+ARG USER_UID
+ARG USER_GID
 
 RUN groupadd --gid $USER_GID $USERNAME \
   && useradd -s /bin/bash --uid $USER_UID --gid $USER_GID -m $USERNAME \
   && mkdir /home/$USERNAME/.config && chown $USER_UID:$USER_GID /home/$USERNAME/.config
 #   usermod -aG dialout $USERNAME
 
-# Create microROS workspace
+# --------------------- Create microROS workspace
 WORKDIR /home/$USERNAME
 
 # Give sudo permissions to user-setup (needed for PlatformIO device access)
@@ -64,6 +62,7 @@ RUN mkdir microros_ws && \
     rosdep install --from-paths src --ignore-src -y
 
 ENV MICROROS_WS=/home/$USERNAME/microros_ws 
+ENV PIO_WS=/home/$USERNAME/pio_projects
 
 # Build microROS setup tools, and create agent
 RUN . /opt/ros/$ROS_DISTRO/setup.bash && \
@@ -73,34 +72,38 @@ RUN . /opt/ros/$ROS_DISTRO/setup.bash && \
     ros2 run micro_ros_setup create_agent_ws.sh && \
     ros2 run micro_ros_setup build_agent.sh
 
-# Install PlatformIO at developer user home
-RUN curl -fsSL -o get-platformio.py https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py && \
-    apt-get install python3.12-venv && \
-    python3 get-platformio.py && \ 
-    rm -rf get-platformio.py
-
-# Remove apt list before usage
-RUN rm -rf /var/lib/apt/lists/*
+# Add entrypoint to source ROS2 and microROS environments
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Change to developer use 
 USER $USERNAME
 
-RUN mkdir -p ~/.local/bin && \
-    echo 'export PATH=$PATH:$HOME/.local/bin' >> ~/.profile && \
+# --------------------- Install PlatformIO at developer user home
+RUN curl -fsSL -o get-platformio.py https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py && \
+    sudo apt-get install python3.12-venv && \
+    python3 get-platformio.py
+
+# Remove apt list before usage
+RUN sudo rm -rf /var/lib/apt/lists/*
+
+RUN mkdir pio_projects && \
+    mkdir -p ~/.local/bin && \
+    # echo 'export PATH=$PATH:$HOME/.local/bin' >> ~/.profile && \
+    # echo 'export PATH=$PATH:$HOME/.local/bin' >> ~/.bashrc && \
     ln -s ~/.platformio/penv/bin/platformio ~/.local/bin/platformio && \
     ln -s ~/.platformio/penv/bin/pio ~/.local/bin/pio && \
     ln -s ~/.platformio/penv/bin/piodebuggdb ~/.local/bin/piodebuggdb
 
-# RUN echo "source /opt/ros/$ROS_DISTRO/setup.bash" >> ~/.bashrc
-# RUN echo "source /opt/microros_ws/install/local_setup.bash" >> ~/.bashrc
+# Copy source code that you put inside of both folders to image 
+COPY ../microros_ws MICROROS_WS
+COPY ../pio_projects PIO_WS
 
-# Add entrypoint to source ROS2 and microROS environments
-COPY entrypoint.sh /entrypoint.sh
+# Execute entrypoint.sh when the container just run
+ENTRYPOINT ["/bin/bash","/entrypoint.sh"]
+# execute with bash , the provided path is /entrypoint.sh
 
-COPY bashrc .bashrc
-ENTRYPOINT ["/bin/bash", "/entrypoint.sh"]
-
-# Default command opens a bash shell
+# Provide argument to entrypoint.sh to $@ 
 CMD ["bash"]
 
 ################################################################################
