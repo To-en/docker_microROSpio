@@ -12,8 +12,9 @@ services:
         USER_GID: 2000
     container_name: microros-platformio-jazzy
     volumes:
-      # Mount your PlatformIO project directory
-      - .:/workspace
+      # Mount your PlatformIO project directory (This should bind mount to)
+      # - .:/workspace
+      - workspace:/workspace
       # Persist PlatformIO packages and toolchains
       - platformio-packages:/home/developer/.platformio
       # Mount USB devices for flashing
@@ -25,7 +26,7 @@ services:
       - DISPLAY=${DISPLAY}  # For GUI tools if needed
       - ROS_DOMAIN_ID=42   # Set ROS domain ID
     network_mode: host  # For ROS2 communication
-    working_dir: /workspace
-
+    working_dir: /home/developer
+## It does mount
 volumes:
   platformio-packages:
