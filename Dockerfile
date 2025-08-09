@@ -22,18 +22,16 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     build-essential \
     cmake \
-    wget \
-    software-properties-common \
     sudo \
-    python3-venv \
-    micro
+    micro 
+    # rm -rf /var/lib/apt/lists/*
 
 ################################################################################
-# New user microROS setup & PIO core installation
+# Default user microROS setup & PIO core installation
 ################################################################################
 FROM base as development
 
-# Create non-root user
+# Create non-root user group
 ARG USERNAME
 ARG USER_UID
 ARG USER_GID
@@ -43,26 +41,23 @@ RUN groupadd --gid $USER_GID $USERNAME \
   && mkdir /home/$USERNAME/.config && chown $USER_UID:$USER_GID /home/$USERNAME/.config
 #   usermod -aG dialout $USERNAME
 
-# --------------------- Create microROS workspace
-WORKDIR /home/$USERNAME
-
 # Give sudo permissions to user-setup (needed for PlatformIO device access)
-# Copy root's environment setup to user
+# Copy root's bashrc to user and give permission
 RUN echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME && \
     chmod 0440 /etc/sudoers.d/$USERNAME && \
     cp ~/.bashrc /home/$USERNAME/.bashrc && \
     chown $USERNAME:$USERNAME /home/$USERNAME/.bashrc
 
+# --------------------- Create microROS workspace
+WORKDIR /home/$USERNAME
+
 # Instantiate microROS worksapce, clone setup file , and update ROS2 dependencies
 RUN mkdir microros_ws && \
     cd microros_ws && \
     git clone -b $ROS_DISTRO https://github.com/micro-ROS/micro_ros_setup.git src/micro_ros_setup && \
-    apt-get update && \ 
+    sudo apt-get update && \ 
     rosdep update && \
     rosdep install --from-paths src --ignore-src -y
-
-ENV MICROROS_WS=/home/$USERNAME/microros_ws 
-ENV PIO_WS=/home/$USERNAME/pio_projects
 
 # Build microROS setup tools, and create agent
 RUN . /opt/ros/$ROS_DISTRO/setup.bash && \
@@ -76,28 +71,36 @@ RUN . /opt/ros/$ROS_DISTRO/setup.bash && \
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# Change the user owner over home directory
+RUN chown -R $USERNAME:$USERNAME /home/$USERNAME
 # Change to developer use 
 USER $USERNAME
 
 # --------------------- Install PlatformIO at developer user home
 RUN curl -fsSL -o get-platformio.py https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py && \
-    sudo apt-get install python3.12-venv && \
-    python3 get-platformio.py
+    sudo apt-get install python3.12-venv -y && \
+    python3 get-platformio.py && rm -rf get-platformio.py && \
+    sudo rm -rf /var/lib/apt/lists/*
 
-# Remove apt list before usage
-RUN sudo rm -rf /var/lib/apt/lists/*
-
-RUN mkdir pio_projects && \
-    mkdir -p ~/.local/bin && \
-    # echo 'export PATH=$PATH:$HOME/.local/bin' >> ~/.profile && \
-    # echo 'export PATH=$PATH:$HOME/.local/bin' >> ~/.bashrc && \
+# Create symlink that point to .platformio executable
+RUN mkdir -p ~/.local/bin && \
     ln -s ~/.platformio/penv/bin/platformio ~/.local/bin/platformio && \
     ln -s ~/.platformio/penv/bin/pio ~/.local/bin/pio && \
     ln -s ~/.platformio/penv/bin/piodebuggdb ~/.local/bin/piodebuggdb
 
-# Copy source code that you put inside of both folders to image 
-COPY ../microros_ws MICROROS_WS
-COPY ../pio_projects PIO_WS
+# Prepare the workspace
+RUN mkdir ~/microros_ws/src/my_pkgs && \
+    mkdir ~/pio_projects 
+
+# Add somecommand to startup bash in case docker exec
+RUN echo "export PATH=$PATH:$HOME/.local/bin" >> ~/.bashrc && \
+    echo "export PATH=$PATH:$HOME/.local/bin" >> ~/.profile && \
+    echo "source /opt/ros/$ROS_DISTRO/setup.bash" >> ~/.bashrc && \
+    echo "source /opt/ros/$ROS_DISTRO/setup.bash" >> ~/.profile
+
+# Change the ownership of home/developer folder
+ENV MICROROS_WS=/home/$USERNAME/microros_ws 
+ENV PIO_WS=/home/$USERNAME/pio_projects
 
 # Execute entrypoint.sh when the container just run
 ENTRYPOINT ["/bin/bash","/entrypoint.sh"]
