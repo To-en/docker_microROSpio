@@ -1,19 +1,20 @@
 services:
   microros-dev:
     build:
+      # Can change build context with cmd to other stuffs
       context: .
       dockerfile: Dockerfile
       args:
         USERNAME: developer
         USER_UID: 2000
         USER_GID: 2000
-    container_name: bp-ros-cont
+    container_name: bp-ros-cont2
     volumes:
       # Only stores containers dependencies and toolchains within container
       - platformio-packages:/home/developer/.platformio
       # - rosbuild-cache:/home/developer/microros_ws
       # - piobuild-cache:/home/developer/pio_projects
-      # Mount USB devices for flashing (This will mount from Linux system)
+      # Mount All USB devices from /dev path
       - /dev:/dev
       # # Mount your PlatformIO project directory
       - ./pio_projects:/home/developer/pio_projects
@@ -29,5 +30,5 @@ services:
 ## It does mount
 volumes:
   platformio-packages:
-  rosbuild-cache:
-  piobuild-cache:
+  # rosbuild-cache:
+  # piobuild-cache:
